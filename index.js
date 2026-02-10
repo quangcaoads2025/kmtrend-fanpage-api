@@ -11,14 +11,14 @@ app.use(express.json());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
 
-// PAGE TOKENS
+// PAGE ID → PAGE TOKEN
 const PAGE_TOKENS = {
   "908190325706631": process.env.PAGE_TOKEN_908190325706631,
   "10290275494336": process.env.PAGE_TOKEN_10290275494336,
 };
 
 // ======================
-// MONGODB CONNECT
+// MONGODB
 // ======================
 const client = new MongoClient(MONGO_URI);
 await client.connect();
@@ -61,7 +61,7 @@ async function sendMessage(pageId, psid, text) {
 }
 
 // ======================
-// RECEIVE EVENTS
+// RECEIVE WEBHOOK
 // ======================
 app.post("/webhook", async (req, res) => {
   const entry = req.body.entry?.[0];
@@ -73,43 +73,35 @@ app.post("/webhook", async (req, res) => {
   const text = event.message?.text;
 
   if (text) {
-    // 🔹 LƯU DB
+    // SAVE DB
     await messagesCol.insertOne({
       pageId,
       senderId,
       text,
-      from: "user",
       createdAt: new Date(),
     });
 
-    // 🔹 BOT REPLY
-    await sendMessage(pageId, senderId, `🤖 Bot nhận: ${text}`);
-
-    // 🔹 LƯU BOT MESSAGE
-    await messagesCol.insertOne({
-      pageId,
-      senderId,
-      text: `🤖 Bot nhận: ${text}`,
-      from: "bot",
-      createdAt: new Date(),
-    });
+    // AUTO REPLY
+    await sendMessage(pageId, senderId, `🤖 Bot: ${text}`);
   }
 
   res.sendStatus(200);
 });
 
 // ======================
-// API CHO INBOX UI
+// API FOR UI
 // ======================
-app.get("/messages", async (req, res) => {
-  const msgs = await messagesCol
+app.get("/api/messages", async (req, res) => {
+  const messages = await messagesCol
     .find()
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: -1 })
+    .limit(50)
     .toArray();
-  res.json(msgs);
+  res.json(messages);
 });
 
+// ======================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on ${PORT}`);
+  console.log("🚀 Server running on port", PORT);
 });
