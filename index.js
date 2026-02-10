@@ -11,29 +11,20 @@ app.use(express.json());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
 
-// MAP PAGE ID → PAGE TOKEN
+// PAGE TOKENS
 const PAGE_TOKENS = {
   "908190325706631": process.env.PAGE_TOKEN_908190325706631,
   "10290275494336": process.env.PAGE_TOKEN_10290275494336,
 };
 
 // ======================
-// CONNECT MONGODB
+// MONGODB CONNECT
 // ======================
 const client = new MongoClient(MONGO_URI);
-let messagesCol;
-
-async function connectDB() {
-  try {
-    await client.connect();
-    const db = client.db("inbox");
-    messagesCol = db.collection("messages");
-    console.log("✅ MongoDB connected");
-  } catch (err) {
-    console.error("❌ MongoDB connection failed", err);
-  }
-}
-connectDB();
+await client.connect();
+const db = client.db("inbox");
+const messagesCol = db.collection("messages");
+console.log("✅ MongoDB connected");
 
 // ======================
 // VERIFY WEBHOOK
@@ -46,7 +37,6 @@ app.get("/webhook", (req, res) => {
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
-
   return res.sendStatus(403);
 });
 
@@ -55,26 +45,19 @@ app.get("/webhook", (req, res) => {
 // ======================
 async function sendMessage(pageId, psid, text) {
   const pageToken = PAGE_TOKENS[pageId];
-  if (!pageToken) {
-    console.log("❌ No PAGE_TOKEN for page:", pageId);
-    return;
-  }
+  if (!pageToken) return;
 
-  try {
-    await fetch(
-      `https://graph.facebook.com/v18.0/me/messages?access_token=${pageToken}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipient: { id: psid },
-          message: { text },
-        }),
-      }
-    );
-  } catch (err) {
-    console.error("❌ Send message error:", err);
-  }
+  await fetch(
+    `https://graph.facebook.com/v18.0/me/messages?access_token=${pageToken}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { id: psid },
+        message: { text },
+      }),
+    }
+  );
 }
 
 // ======================
@@ -89,26 +72,25 @@ app.post("/webhook", async (req, res) => {
   const senderId = event.sender.id;
   const text = event.message?.text;
 
-  if (text && messagesCol) {
-    // LƯU TIN NHẮN VÀO DB
+  if (text) {
+    // 🔹 LƯU DB
     await messagesCol.insertOne({
       pageId,
       senderId,
       text,
-      direction: "in",
+      from: "user",
       createdAt: new Date(),
     });
 
-    // TRẢ LỜI
-    const reply = `🤖 Bot nhận được: ${text}`;
-    await sendMessage(pageId, senderId, reply);
+    // 🔹 BOT REPLY
+    await sendMessage(pageId, senderId, `🤖 Bot nhận: ${text}`);
 
-    // LƯU TIN NHẮN BOT
+    // 🔹 LƯU BOT MESSAGE
     await messagesCol.insertOne({
       pageId,
       senderId,
-      text: reply,
-      direction: "out",
+      text: `🤖 Bot nhận: ${text}`,
+      from: "bot",
       createdAt: new Date(),
     });
   }
@@ -117,7 +99,17 @@ app.post("/webhook", async (req, res) => {
 });
 
 // ======================
+// API CHO INBOX UI
+// ======================
+app.get("/messages", async (req, res) => {
+  const msgs = await messagesCol
+    .find()
+    .sort({ createdAt: 1 })
+    .toArray();
+  res.json(msgs);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on ${PORT}`);
 });
